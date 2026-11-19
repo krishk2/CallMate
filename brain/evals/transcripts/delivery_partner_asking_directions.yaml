@@ -1,0 +1,7 @@
+# Format for golden transcripts (docs/HANDOFF.md §7.1.12). Add more under this directory —
+# content authoring is Antigravity's (ANTIGRAVITY_HANDOFF.md §1.6), scoring is run_evals.py's.
+caller_text: "Hi, I have a package for 221B Baker Street, which building is that?"
+contact_relationship: null
+repeat_calls_in_window: 0
+expected_intent: delivery_logistics
+expected_priority_level: normal

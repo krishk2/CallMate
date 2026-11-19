@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: callmate
+      POSTGRES_PASSWORD: callmate
+      POSTGRES_DB: callmate
+    ports:
+      - "5432:5432"
+    volumes:
+      - callmate_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U callmate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  brain:
+    build:
+      context: .
+      dockerfile: brain/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://callmate:callmate@postgres:5432/callmate
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: pipeline/Dockerfile
+    env_file: .env
+    environment:
+      BRAIN_WS_URL: ws://brain:8001/v1/calls
+    ports:
+      - "8000:8000"
+    depends_on:
+      - brain
+
+volumes:
+  callmate_postgres_data:

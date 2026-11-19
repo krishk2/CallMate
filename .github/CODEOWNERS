@@ -1,0 +1,4 @@
+# Pipeline is Person 1's; Brain is Person 2's; contracts/ needs both.
+/pipeline/   @person1
+/brain/      @person2
+/contracts/  @person1 @person2
