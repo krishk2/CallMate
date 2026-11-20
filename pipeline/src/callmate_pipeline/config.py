@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     brain_ws_url: str = "ws://localhost:8001/v1/calls"
     brain_first_token_timeout_s: float = 0.6
     brain_fallback_timeout_s: float = 4.0
+    # Guards CallSession.close()'s wait for brain's session.result (brain's own retry-on-
+    # invalid-JSON summariser can take two full LLM round trips back to back, ~20-30s in the
+    # worst case) — without this, a slow/unreachable brain hangs the whole call-close path
+    # forever, and send_call_summary_notifications() (the Telegram/WhatsApp ping) never runs.
+    brain_end_session_timeout_s: float = 20.0
 
     # notifications
     telegram_bot_token: str = ""

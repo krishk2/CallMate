@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 import structlog
-from callmate_contracts.enums import Action, CallMode, Language, SessionEndReason
+from callmate_contracts.enums import Action, CallMode, Intent, Language, Priority, SessionEndReason
 from callmate_contracts.messages import (
     AgentInterrupted,
     Escalate,
@@ -53,6 +53,7 @@ class CallSession:
         forwarded_reason: str | None = None,
         on_escalate: EscalateHook | None = None,
         call_repository: CallRepository | None = None,
+        brain_end_session_timeout_s: float = 20.0,
     ) -> None:
         self._call_id = call_id
         self._user_id = user_id
@@ -68,6 +69,7 @@ class CallSession:
         self._audio_out = audio_out
         self._on_escalate = on_escalate
         self._call_repository = call_repository
+        self._brain_end_session_timeout_s = brain_end_session_timeout_s
 
         self._state = CallState.RINGING
         self._out_seq = 0
@@ -258,19 +260,46 @@ class CallSession:
         # one connection. Cancel-without-awaiting left a race where both loops could touch
         # the socket at once, corrupting it (observed as "no close frame received or sent").
         await asyncio.gather(*self._tasks, return_exceptions=True)
-        await self._stt.close()
+        try:
+            await self._stt.close()
+        except Exception:
+            self._log.warning("stt_close_failed", exc_info=True)
         if self._state != CallState.CLOSING:
             self._transition(CallState.CLOSING)
         duration_s = time.monotonic() - self._started_at
-        result = await self._brain.end_session(
-            SessionEnd(
+        try:
+            result = await asyncio.wait_for(
+                self._brain.end_session(
+                    SessionEnd(
+                        call_id=self._call_id,
+                        seq=self._next_seq(),
+                        reason=reason,
+                        duration_s=duration_s,
+                    )
+                ),
+                timeout=self._brain_end_session_timeout_s,
+            )
+        except Exception:
+            # A slow/unreachable brain (e.g. its own summariser retrying twice, or the
+            # pipeline<->brain connection dying silently mid-wait) must not hang call teardown
+            # forever — without this, send_call_summary_notifications() below never runs, so
+            # the operator never gets a Telegram/WhatsApp ping for a call that actually
+            # completed. Mirrors brain's own summariser.py fallback shape.
+            self._log.warning("brain_end_session_failed_or_timed_out", exc_info=True)
+            result = SessionResult(
                 call_id=self._call_id,
                 seq=self._next_seq(),
-                reason=reason,
-                duration_s=duration_s,
+                priority_level=Priority.NORMAL,
+                score=30,
+                intent=Intent.OTHER,
+                summary="Summary unavailable; brain did not respond before session.end timed out.",
+                callback_needed=False,
+                reason="brain_end_session_timeout",
             )
-        )
-        await self._brain.close()
+        try:
+            await self._brain.close()
+        except Exception:
+            self._log.warning("brain_close_failed", exc_info=True)
         if self._call_repository is not None:
             try:
                 await self._call_repository.end_call(

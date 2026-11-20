@@ -65,6 +65,8 @@ async def summarise_call(
         )
         try:
             return SessionResult(call_id=call_id, seq=seq, **raw)
-        except (ValidationError, TypeError):
-            logger.warning("summary_json_invalid", attempt=attempt, call_id=call_id)
+        except (ValidationError, TypeError) as exc:
+            logger.warning(
+                "summary_json_invalid", attempt=attempt, call_id=call_id, raw=raw, error=str(exc)
+            )
     return _rules_only_fallback(call_id, seq)

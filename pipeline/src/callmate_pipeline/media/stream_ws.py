@@ -19,6 +19,7 @@ from callmate_contracts.enums import CallMode, Language, SessionEndReason
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..brain_client import create_brain_client
+from ..config import settings
 from ..notify import send_call_summary_notifications
 from ..session.call_session import CallSession
 from ..session.state import CallState
@@ -71,6 +72,7 @@ async def media_stream(websocket: WebSocket, call_id: str) -> None:
                         audio_out=audio_out,
                         language_hint=Language(custom.get("language_hint", Language.AUTO.value)),
                         call_repository=SqlCallRepository(db),
+                        brain_end_session_timeout_s=settings.brain_end_session_timeout_s,
                     )
                     await session.start()
                 case "media":
