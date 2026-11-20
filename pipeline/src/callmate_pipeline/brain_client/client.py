@@ -5,6 +5,7 @@ below, never a concrete WebSocket client. `RemoteBrainClient` is the real implem
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -62,10 +63,31 @@ class RemoteBrainClient(BrainClient):
 
     async def _connect(self) -> Any:
         if self._ws is None:
-            self._ws = await websockets.connect(
-                self._ws_url,
-                additional_headers={"Authorization": f"Bearer {self._service_token}"},
-            )
+            last_exc: Exception | None = None
+            for attempt in range(settings.brain_connect_max_attempts):
+                try:
+                    self._ws = await websockets.connect(
+                        self._ws_url,
+                        additional_headers={"Authorization": f"Bearer {self._service_token}"},
+                    )
+                    return self._ws
+                except Exception as exc:
+                    last_exc = exc
+                    # A sleeping free-tier deployment (Render et al.) can take longer to
+                    # cold-start than a single WS handshake attempt tolerates — a 502 here
+                    # isn't necessarily brain being actually down, just not awake *yet*.
+                    # Without this retry, that transient state crashed the whole call right
+                    # after the greeting (observed live: HTTP 502 on the handshake).
+                    if attempt < settings.brain_connect_max_attempts - 1:
+                        logger.warning(
+                            "brain_connect_retry",
+                            attempt=attempt,
+                            url=self._ws_url,
+                            error=str(exc),
+                        )
+                        await asyncio.sleep(settings.brain_connect_retry_delay_s)
+            assert last_exc is not None
+            raise last_exc
         return self._ws
 
     async def _send(

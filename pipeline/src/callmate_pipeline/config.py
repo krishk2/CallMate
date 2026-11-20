@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     # worst case) — without this, a slow/unreachable brain hangs the whole call-close path
     # forever, and send_call_summary_notifications() (the Telegram/WhatsApp ping) never runs.
     brain_end_session_timeout_s: float = 20.0
+    # Retries a failed brain WebSocket handshake rather than crashing the call outright — a
+    # sleeping free-tier deployment returning a 502 while it cold-starts is transient, not a
+    # real outage. 3 attempts * 2s covers a cold start without making a genuinely-down brain
+    # hang the caller for long.
+    brain_connect_max_attempts: int = 3
+    brain_connect_retry_delay_s: float = 2.0
 
     # notifications
     telegram_bot_token: str = ""

@@ -123,18 +123,31 @@ class CallSession:
             "Hi, this is your assistant. They can't take the call right now. "
             "This call is recorded so I can pass on your message. How can I help?"
         )
-        await self._brain.start_session(
-            SessionStart(
-                call_id=self._call_id,
-                seq=self._next_seq(),
-                user_id=self._user_id,
-                caller_number=self._caller_number,
-                caller_name=self._caller_name,
-                mode=self._mode,
-                language_hint=self._language_hint,
-                forwarded_reason=self._forwarded_reason,
+        try:
+            await self._brain.start_session(
+                SessionStart(
+                    call_id=self._call_id,
+                    seq=self._next_seq(),
+                    user_id=self._user_id,
+                    caller_number=self._caller_number,
+                    caller_name=self._caller_name,
+                    mode=self._mode,
+                    language_hint=self._language_hint,
+                    forwarded_reason=self._forwarded_reason,
+                )
             )
-        )
+        except Exception:
+            # Brain is unreachable even after _connect()'s retries — there's no one left to
+            # generate replies for the rest of this call. Say so and stop here (voicemail-
+            # style) rather than let the exception crash the ASGI handler, which previously
+            # dropped the caller mid-greeting with no explanation (observed live).
+            self._log.warning("brain_start_session_failed", exc_info=True)
+            await self._speak(
+                "I'm sorry, I'm having trouble connecting right now. "
+                "Please try calling again in a few minutes."
+            )
+            self._transition(CallState.CLOSING)
+            return
         self._transition(CallState.LISTENING)
         self._tasks.append(asyncio.create_task(self._consume_brain_replies()))
 
