@@ -46,13 +46,18 @@ class Settings(BaseSettings):
     # invalid-JSON summariser can take two full LLM round trips back to back, ~20-30s in the
     # worst case) — without this, a slow/unreachable brain hangs the whole call-close path
     # forever, and send_call_summary_notifications() (the Telegram/WhatsApp ping) never runs.
-    brain_end_session_timeout_s: float = 20.0
+    # Measured live against the actual Render free-tier deployment: a fully slept brain
+    # service took ~28.5s to answer its first request after waking. brain_end_session_timeout_s
+    # must stay comfortably above brain_connect_max_attempts * brain_connect_retry_delay_s, or
+    # this timeout cuts the connection off before the retries below even get a chance to work.
+    brain_end_session_timeout_s: float = 45.0
     # Retries a failed brain WebSocket handshake rather than crashing the call outright — a
     # sleeping free-tier deployment returning a 502 while it cold-starts is transient, not a
-    # real outage. 3 attempts * 2s covers a cold start without making a genuinely-down brain
-    # hang the caller for long.
-    brain_connect_max_attempts: int = 3
-    brain_connect_retry_delay_s: float = 2.0
+    # real outage. 6 attempts * 5s (~30s budget) covers the measured cold-start time above;
+    # scripts/warm_render.ps1 is the actual fix for a testing session (keeps brain from
+    # sleeping at all) — this is just the safety net for whenever that isn't running.
+    brain_connect_max_attempts: int = 6
+    brain_connect_retry_delay_s: float = 5.0
 
     # notifications
     telegram_bot_token: str = ""
