@@ -1,0 +1,105 @@
+# Render Blueprint — a parallel trial deployment, independent of fly.brain.toml /
+# fly.pipeline.toml (neither of those is touched by this file). If this works out, it's the
+# new deployment; until then, Fly keeps running as-is.
+#
+# How to use:
+#   1. Create a free Render account (render.com), no card required for the `free` plan.
+#   2. Dashboard -> New -> Blueprint -> connect this repo/branch. Render reads this file and
+#      proposes both services below.
+#   3. It will prompt for every `sync: false` secret (the real API keys/tokens) — paste the
+#      same values already in fly secrets / .env. Nothing in this file is a real credential.
+#   4. After both deploy, point Twilio's Voice webhook at the new pipeline URL
+#      (<pipeline-service>.onrender.com/twilio/voice) to actually test a call through it.
+#
+# Trial tradeoff (docs/adr/ — add one if this becomes the real deployment): free-tier
+# services can't *receive* private-network traffic (render.com/docs/private-network), only
+# send it — so unlike Fly's 6PN-only brain, brain's WS/REST here is reachable on the public
+# internet, gated by the same SERVICE_TOKEN check already in the code (nothing to change).
+# Free services also sleep after 15 min with zero traffic (not Fly's trial's hard 5-minute
+# uptime cap) and cold-start in ~30-60s on the next request — fine mid-call, but the first
+# call after a long idle gap may be slow to connect.
+
+services:
+  - name: callmate-brain
+    type: web
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./brain/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    envVars:
+      - key: REPLY_LLM_PROVIDER
+        value: groq
+      - key: REPLY_MODEL
+        value: openai/gpt-oss-20b
+      - key: SUMMARY_LLM_PROVIDER
+        value: nvidia
+      - key: SUMMARY_MODEL
+        value: nvidia/nemotron-3.5-lightning-30b-a3b
+      - key: EMBEDDING_PROVIDER
+        value: nvidia
+      - key: NVIDIA_EMBEDDING_MODEL
+        value: nvidia/nemotron-3-embed-1b
+      - key: SERVICE_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+
+  - name: callmate-pipeline
+    type: web
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./pipeline/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    envVars:
+      # fromService only hands back the bare hostname, not a full scheme+path URL, and these
+      # three fields need both (e.g. "wss://callmate-brain.onrender.com/v1/calls") — so they're
+      # manual, filled in once both services exist and you know their actual *.onrender.com
+      # hostnames (Render appends a random suffix if "callmate-brain" is already taken by
+      # someone else). PUBLIC_BASE_URL -> this pipeline service's own https:// URL.
+      # BRAIN_WS_URL -> "wss://<brain-host>/v1/calls". BRAIN_REST_BASE_URL -> "https://<brain-host>".
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: BRAIN_WS_URL
+        sync: false
+      - key: BRAIN_REST_BASE_URL
+        sync: false
+      - key: STT_PROVIDER
+        value: deepgram_flux
+      - key: TTS_PROVIDER
+        value: elevenlabs
+      - key: BRAIN_MODE
+        value: remote
+      - key: TELEPHONY_MODE
+        value: media_streams
+      - key: SERVICE_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_NUMBER
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
