@@ -27,9 +27,10 @@ def format_summary_message(
     emoji = _PRIORITY_EMOJI[result.priority_level]
     who = caller_name or caller_number
     minutes, seconds = divmod(int(duration_s), 60)
+    intent_label = result.intent.value.replace("_", " ")
     return (
-        f"{emoji} {result.priority_level.value.upper()} · {who} · {result.summary} · "
-        f"{minutes}m {seconds}s · tel:{caller_number}"
+        f"{emoji} {result.priority_level.value.upper()} ({intent_label}) · {who} · "
+        f"{result.summary} · {minutes}m {seconds}s · tel:{caller_number}"
     )
 
 

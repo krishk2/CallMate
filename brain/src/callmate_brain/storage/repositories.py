@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from callmate_contracts.messages import SessionResult
 from callmate_contracts.rest import CallContextResponse, UserSettings
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..memory.contacts import ContactRepository
 from ..memory.longterm import LongTermMemoryStore, RetrievedMemory
 from ..memory.profile import ProfileRepository, UserProfile
-from .models import ContactRow, MemoryRow, SettingsRow, UserRow
+from ..safety.encryption import decrypt, encrypt
+from .models import CallRow, ContactRow, MemoryRow, SettingsRow, UserRow
 
 
 class SqlProfileRepository(ProfileRepository):
@@ -121,7 +123,7 @@ class SqlLongTermMemoryStore(LongTermMemoryStore):
                 user_id=user_id,
                 caller_number=caller_number,
                 kind=kind,
-                content=content,
+                content=encrypt(content),
                 embedding=embedding,
                 created_at=datetime.now(UTC),
             )
@@ -143,7 +145,10 @@ class SqlLongTermMemoryStore(LongTermMemoryStore):
             stmt = stmt.where(MemoryRow.caller_number == caller_number)
         stmt = stmt.order_by(distance).limit(top_k)
         rows = (await self._session.execute(stmt)).all()
-        return [RetrievedMemory(content=row[0].content, similarity=1 - row[1]) for row in rows]
+        return [
+            RetrievedMemory(content=decrypt(row[0].content), similarity=1 - row[1])
+            for row in rows
+        ]
 
     async def delete(self, user_id: str, memory_id: str) -> None:
         row = await self._session.get(MemoryRow, memory_id)
@@ -156,4 +161,40 @@ class SqlLongTermMemoryStore(LongTermMemoryStore):
         rows = (await self._session.execute(stmt)).scalars().all()
         for row in rows:
             await self._session.delete(row)
+        await self._session.commit()
+
+
+class SqlCallHistoryRepository:
+    """Backs `api/calls.py`'s GET endpoints. Nothing wrote to `brain.calls` before this —
+    `GET /v1/users/{id}/calls` would always have returned an empty list.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add_call(
+        self,
+        *,
+        call_id: str,
+        user_id: str,
+        caller_number: str,
+        started_at: datetime,
+        duration_s: float,
+        result: SessionResult,
+    ) -> None:
+        self._session.add(
+            CallRow(
+                call_id=call_id,
+                user_id=user_id,
+                caller_number=caller_number,
+                started_at=started_at,
+                duration_s=duration_s,
+                priority_level=result.priority_level.value,
+                score=result.score,
+                intent=result.intent.value,
+                summary=encrypt(result.summary),
+                callback_needed=result.callback_needed,
+                callback_window=result.callback_window,
+            )
+        )
         await self._session.commit()

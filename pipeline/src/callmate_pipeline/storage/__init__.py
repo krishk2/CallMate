@@ -16,7 +16,11 @@ from sqlalchemy.schema import CreateSchema
 from ..config import settings
 from .models import Base
 
-engine = create_async_engine(settings.database_url)
+# statement_cache_size=0 disables asyncpg's prepared-statement cache, required when
+# DATABASE_URL points at a PgBouncer-pooled endpoint in transaction mode (e.g. Neon's
+# "-pooler" hostname) — otherwise cached statements get reused across unrelated pooled
+# connections and asyncpg raises "prepared statement ... does not exist" errors.
+engine = create_async_engine(settings.database_url, connect_args={"statement_cache_size": 0})
 _session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 

@@ -12,5 +12,14 @@ Owned by Person 2 / brain (`docs/HANDOFF.md` §8). This should expand the princi
   jobs exist (`docs/HANDOFF.md` §8, "Retention" row).
 
 The enforcement code this doc describes already exists: `brain/src/callmate_brain/safety/`
-(guardrails, output_filter, injection, redact) and `pipeline/.../telephony/twilio_webhooks.py`
-(signature validation). This doc is the write-up, not a spec for new code.
+(guardrails, output_filter, injection, redact, encryption) and
+`pipeline/.../telephony/twilio_webhooks.py` (signature validation). This doc is the write-up,
+not a spec for new code.
+
+**Encryption at rest** (`safety/encryption.py`, `docs/adr/0003-encrypt-stored-content-at-rest.md`):
+stored call summaries (`MemoryRow.content`, `CallRow.summary`) are encrypted with Fernet
+before they ever reach Postgres — a DB dump alone doesn't expose them. This is on top of,
+not instead of, the redaction in `safety/redact.py`: redaction removes specific
+OTP/card/Aadhaar-shaped patterns before storage; encryption protects everything else that's
+left. Key (`ENCRYPTION_KEY`) is a Fly secret on `brain` only — losing it makes existing
+encrypted rows permanently unreadable, so it needs a backup outside Fly's secret store.

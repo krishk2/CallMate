@@ -21,7 +21,7 @@ async def write_post_call_memory(
     result: SessionResult,
 ) -> str:
     safe_summary = redact(result.summary)
-    embedding = await embeddings.embed(safe_summary)
+    embedding = await embeddings.embed(safe_summary, kind="passage")
     return await store.add(
         user_id, safe_summary, embedding, kind="summary", caller_number=caller_number
     )

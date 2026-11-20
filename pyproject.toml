@@ -15,9 +15,13 @@ dev = ["ruff>=0.8", "mypy>=1.13", "pytest>=8.3", "pytest-asyncio>=0.24"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["brain/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+# B008 (function call in default arg) is a false positive for FastAPI's idiomatic
+# `= Depends(...)` pattern — that's the documented, recommended way to declare dependencies.
+ignore = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"

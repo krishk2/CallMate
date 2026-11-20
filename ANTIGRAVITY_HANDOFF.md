@@ -29,7 +29,10 @@ tool, a doc, a mock, or optional/Phase 3 — it's yours.
   replies, priority updates, and final `session.result`. Talks to the brain over the same
   WebSocket contract pipeline uses (`contracts/`), just from a terminal instead of a phone call.
 - `tools/seed_demo_user.py` — creates a demo user, contacts, style samples, and tone settings so
-  both services have something to run against locally.
+  both services have something to run against locally. **Partially done already**: the
+  user+settings rows (Claude Code implemented this minimally once it became a real blocker —
+  every memory write was hitting a foreign-key violation with no seed data). Contacts and
+  style samples are still not seeded — add those here.
 - **Done when:** a fresh clone can run `uv run python tools/seed_demo_user.py` then
   `uv run python tools/sim_call.py --user demo --caller +9198…` and hold a full typed
   conversation against the brain service with no manual DB setup.
@@ -45,7 +48,8 @@ tool, a doc, a mock, or optional/Phase 3 — it's yours.
   Claude Code defines in each `base.py` — **read those protocol files, don't invent your own
   shape.** If a protocol file doesn't exist yet when you get to this, ask rather than guessing
   its signature.
-- **Done when:** setting `STT_PROVIDER=mock`, `TTS_PROVIDER=mock`, `LLM_PROVIDER=mock`,
+- **Done when:** setting `STT_PROVIDER=mock`, `TTS_PROVIDER=mock`, `REPLY_LLM_PROVIDER=mock`,
+  `SUMMARY_LLM_PROVIDER=mock`,
   `BRAIN_MODE=echo` in `.env` lets the whole stack run with zero external API keys.
 
 ### 1.3 Notifications

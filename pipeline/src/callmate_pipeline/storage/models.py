@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Float, ForeignKey, String
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -21,8 +21,10 @@ class CallRow(Base):
     call_id: Mapped[str] = mapped_column(String, primary_key=True)
     user_id: Mapped[str] = mapped_column(String, index=True)
     caller_number: Mapped[str] = mapped_column(String, index=True)
-    started_at: Mapped[datetime]
-    ended_at: Mapped[datetime | None]
+    # timezone=True: callers insert datetime.now(UTC) (aware); a naive column makes
+    # asyncpg's encoder raise "can't subtract offset-naive and offset-aware datetimes".
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_s: Mapped[float | None] = mapped_column(Float)
     end_reason: Mapped[str | None] = mapped_column(String)
     recording_url: Mapped[str | None] = mapped_column(String)
@@ -38,7 +40,7 @@ class TurnRow(Base):
     call_id: Mapped[str] = mapped_column(ForeignKey("pipeline.calls.call_id"), index=True)
     caller_text: Mapped[str] = mapped_column(String)
     agent_text: Mapped[str | None] = mapped_column(String)
-    started_at: Mapped[datetime]
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     call: Mapped[CallRow] = relationship(back_populates="turns")
 

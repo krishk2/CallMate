@@ -1,0 +1,40 @@
+# Fly.io config for the pipeline service. Deploy from the repo root (build context must be
+# root, since pipeline/Dockerfile COPYs both contracts/ and pipeline/):
+#   fly secrets set --config fly.pipeline.toml TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_NUMBER=... \
+#       DEEPGRAM_API_KEY=... ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=... SERVICE_TOKEN=... \
+#       TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... DATABASE_URL=...
+#   fly deploy --config fly.pipeline.toml
+#
+# Deploy fly.brain.toml FIRST — BRAIN_WS_URL/BRAIN_REST_BASE_URL below use Fly's private
+# 6PN network (the ".internal" hostname), which only resolves once that app exists, and
+# keeps brain off the public internet since only this service needs to reach it.
+#
+# App name must be globally unique on Fly — change it here AND in PUBLIC_BASE_URL below if
+# "callmate-pipeline" is taken (Fly assigns <app-name>.fly.dev automatically).
+app = "callmate-pipeline"
+# Mumbai ("bom") is not in Fly's current region list (checked via `fly platform regions`);
+# Singapore is the closest available region to India as of this writing.
+primary_region = "sin"
+
+[build]
+  dockerfile = "pipeline/Dockerfile"
+
+[env]
+  PUBLIC_BASE_URL = "https://callmate-pipeline.fly.dev"
+  BRAIN_WS_URL = "ws://callmate-brain.internal:8001/v1/calls"
+  BRAIN_REST_BASE_URL = "http://callmate-brain.internal:8001"
+  STT_PROVIDER = "deepgram_flux"
+  TTS_PROVIDER = "elevenlabs"
+  BRAIN_MODE = "remote"
+  TELEPHONY_MODE = "media_streams"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false   # never suspend mid-call; a cold start would drop live audio
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

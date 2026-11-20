@@ -23,6 +23,7 @@ from callmate_contracts.messages import (
 
 from ..brain_client.client import BrainClient
 from ..metrics.latency import LatencyRecorder, TurnSpan
+from ..storage.base import CallRepository
 from ..stt.base import STTProvider
 from ..tts.base import TTSProvider
 from .fillers import pick_filler
@@ -51,6 +52,7 @@ class CallSession:
         caller_name: str | None = None,
         forwarded_reason: str | None = None,
         on_escalate: EscalateHook | None = None,
+        call_repository: CallRepository | None = None,
     ) -> None:
         self._call_id = call_id
         self._user_id = user_id
@@ -65,6 +67,7 @@ class CallSession:
         self._brain = brain
         self._audio_out = audio_out
         self._on_escalate = on_escalate
+        self._call_repository = call_repository
 
         self._state = CallState.RINGING
         self._out_seq = 0
@@ -72,6 +75,9 @@ class CallSession:
         self._latency = LatencyRecorder()
         self._active_splitter: SentenceSplitter | None = None
         self._active_span: TurnSpan | None = None
+        self._active_turn_id: str | None = None
+        self._active_caller_text: str = ""
+        self._active_turn_started_at: datetime | None = None
         self._tasks: list[asyncio.Task[None]] = []
 
         self._log = logger.bind(call_id=call_id)
@@ -92,6 +98,29 @@ class CallSession:
     async def start(self) -> None:
         self._started_at = time.monotonic()
         self._transition(CallState.GREETING)
+        if self._call_repository is not None:
+            try:
+                await self._call_repository.start_call(
+                    call_id=self._call_id,
+                    user_id=self._user_id,
+                    caller_number=self._caller_number,
+                    started_at=datetime.now(UTC),
+                )
+            except Exception:
+                self._log.warning("call_repository_start_call_failed", exc_info=True)
+        # Open the STT connection *before* speaking, not after — Twilio starts streaming
+        # inbound audio as soon as the call connects, and send_audio() silently no-ops while
+        # self._ws is None. Starting STT only after the greeting finished speaking meant
+        # anything the caller said during or right at the end of the greeting was dropped.
+        await self._stt.start(language_hint=self._language_hint.value)
+        self._tasks.append(asyncio.create_task(self._consume_stt_results()))
+        # Mandatory, not configurable off (docs/HANDOFF.md §4). TODO: personalize with the
+        # user's first name/pronouns once there's a lightweight brain REST lookup for them —
+        # pipeline doesn't currently have access to that profile data.
+        await self._speak(
+            "Hi, this is your assistant. They can't take the call right now. "
+            "This call is recorded so I can pass on your message. How can I help?"
+        )
         await self._brain.start_session(
             SessionStart(
                 call_id=self._call_id,
@@ -105,8 +134,6 @@ class CallSession:
             )
         )
         self._transition(CallState.LISTENING)
-        await self._stt.start(language_hint=self._language_hint.value)
-        self._tasks.append(asyncio.create_task(self._consume_stt_results()))
         self._tasks.append(asyncio.create_task(self._consume_brain_replies()))
 
     async def handle_caller_audio(self, chunk: bytes) -> None:
@@ -133,6 +160,9 @@ class CallSession:
             span.mark("final_transcript")
             self._active_span = span
             now = datetime.now(UTC)
+            self._active_turn_id = span.turn_id
+            self._active_caller_text = result.text
+            self._active_turn_started_at = now
             await self._brain.send_utterance(
                 Utterance(
                     call_id=self._call_id,
@@ -151,7 +181,7 @@ class CallSession:
                 case "reply.delta":
                     await self._handle_reply_delta(message.text)
                 case "reply.done":
-                    await self._handle_reply_done(message.action)
+                    await self._handle_reply_done(message.action, message.full_text)
                 case "priority.update":
                     self._log.info(
                         "priority_update", score=message.score, level=message.level.value
@@ -173,13 +203,31 @@ class CallSession:
         for chunk in self._active_splitter.feed(text):
             await self._speak(chunk)
 
-    async def _handle_reply_done(self, action: Action) -> None:
+    async def _handle_reply_done(self, action: Action, full_text: str) -> None:
         if self._active_splitter is not None:
             remainder = self._active_splitter.flush()
             if remainder:
                 await self._speak(remainder)
         self._active_splitter = None
         self._active_span = None
+
+        if (
+            self._call_repository is not None
+            and self._active_turn_id is not None
+            and self._active_turn_started_at is not None
+        ):
+            try:
+                await self._call_repository.add_turn(
+                    turn_id=self._active_turn_id,
+                    call_id=self._call_id,
+                    caller_text=self._active_caller_text,
+                    agent_text=full_text,
+                    started_at=self._active_turn_started_at,
+                )
+            except Exception:
+                self._log.warning("call_repository_add_turn_failed", exc_info=True)
+        self._active_turn_id = None
+        self._active_turn_started_at = None
 
         match action:
             case Action.CONTINUE | Action.TAKE_MESSAGE:
@@ -204,6 +252,12 @@ class CallSession:
     async def close(self, reason: SessionEndReason) -> SessionResult:
         for task in self._tasks:
             task.cancel()
+        # Wait for the cancellation to actually land before end_session() below starts its
+        # own read loop on the same brain WebSocket — _consume_brain_replies() was reading
+        # that connection too, and `websockets` doesn't support two concurrent readers on
+        # one connection. Cancel-without-awaiting left a race where both loops could touch
+        # the socket at once, corrupting it (observed as "no close frame received or sent").
+        await asyncio.gather(*self._tasks, return_exceptions=True)
         await self._stt.close()
         if self._state != CallState.CLOSING:
             self._transition(CallState.CLOSING)
@@ -217,4 +271,14 @@ class CallSession:
             )
         )
         await self._brain.close()
+        if self._call_repository is not None:
+            try:
+                await self._call_repository.end_call(
+                    call_id=self._call_id,
+                    ended_at=datetime.now(UTC),
+                    duration_s=duration_s,
+                    end_reason=reason.value,
+                )
+            except Exception:
+                self._log.warning("call_repository_end_call_failed", exc_info=True)
         return result

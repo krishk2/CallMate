@@ -15,6 +15,16 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_object(object, name, type_, reflected, compare_to):
+    """Restrict autogenerate/compare to the `brain` schema only. DATABASE_URL may point at a
+    database shared with unrelated projects (other schemas, or tables in `public`) — without
+    this, `--autogenerate` will propose dropping tables Alembic has no business touching.
+    """
+    table = getattr(object, "table", None)
+    schema = getattr(object, "schema", None) or getattr(table, "schema", None)
+    return schema == "brain"
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=settings.database_url,
@@ -22,6 +32,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         version_table_schema="brain",
         include_schemas=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -33,13 +44,14 @@ def _do_run_migrations(connection) -> None:
         target_metadata=target_metadata,
         version_table_schema="brain",
         include_schemas=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 async def run_migrations_online() -> None:
-    engine = create_async_engine(settings.database_url)
+    engine = create_async_engine(settings.database_url, connect_args={"statement_cache_size": 0})
     async with engine.connect() as connection:
         await connection.run_sync(_do_run_migrations)
     await engine.dispose()

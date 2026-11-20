@@ -1,0 +1,34 @@
+# Fly.io config for the brain service. Deploy from the repo root (build context must be
+# root, since brain/Dockerfile COPYs both contracts/ and brain/):
+#   fly secrets set --config fly.brain.toml DATABASE_URL=... SERVICE_TOKEN=... GROQ_API_KEY=... NVIDIA_API_KEY=...
+#   fly deploy --config fly.brain.toml
+#
+# App name must be globally unique on Fly — change it if "callmate-brain" is taken.
+app = "callmate-brain"
+# Mumbai ("bom") is not in Fly's current region list (checked via `fly platform regions`);
+# Singapore is the closest available region to India as of this writing.
+primary_region = "sin"
+
+[build]
+  dockerfile = "brain/Dockerfile"
+
+[env]
+  # Non-secret provider selection — see docs/adr/0002-llm-providers-groq-nvidia.md. Actual
+  # API keys go through `fly secrets set`, never here.
+  REPLY_LLM_PROVIDER = "groq"
+  REPLY_MODEL = "openai/gpt-oss-20b"
+  SUMMARY_LLM_PROVIDER = "nvidia"
+  SUMMARY_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
+  EMBEDDING_PROVIDER = "nvidia"
+  NVIDIA_EMBEDDING_MODEL = "nvidia/nemotron-3-embed-1b"
+
+[http_service]
+  internal_port = 8001
+  force_https = true
+  auto_stop_machines = false   # never suspend — an in-progress call can't tolerate a cold start
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

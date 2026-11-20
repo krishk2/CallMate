@@ -42,6 +42,18 @@ async def _require_valid_signature(request: Request, params: dict[str, str]) -> 
         raise HTTPException(status_code=403, detail="invalid Twilio signature")
 
 
+def _effective_caller_number(params: dict[str, str]) -> str:
+    """Normal inbound call: the caller is `From`, our number is `To`. A call we triggered
+    ourselves via the REST API (`Direction=outbound-api` — e.g. testing from a phone that
+    can't dial our number directly due to international-dialing restrictions) reverses that:
+    `From` is our own number and `To` is whoever picked up, so *they* are the caller for
+    routing purposes.
+    """
+    if params.get("Direction") == "outbound-api":
+        return params.get("To", "")
+    return params.get("From", "")
+
+
 async def _fetch_call_context(caller_number: str) -> CallContextResponse:
     url = f"{settings.brain_rest_base_url}/v1/users/{settings.demo_user_id}/call-context"
     try:
@@ -61,7 +73,7 @@ async def twilio_voice(request: Request) -> Response:
     await _require_valid_signature(request, params)
 
     call_sid = params.get("CallSid", "")
-    caller_number = params.get("From", "")
+    caller_number = _effective_caller_number(params)
     call_context = await _fetch_call_context(caller_number)
     decision = decide_routing(
         RoutingInput(
@@ -83,7 +95,17 @@ async def twilio_voice(request: Request) -> Response:
     else:
         # ANSWER_FRIENDLY / ANSWER_SCREENING both connect to the media stream; the brain
         # adapts tone based on whether the caller is a known contact (sent in session.start).
-        twiml = build_twiml_for_call(call_sid)
+        is_friendly = decision == RoutingDecision.ANSWER_FRIENDLY
+        mode = CallMode.AWAY if is_friendly else CallMode.SCREEN_UNKNOWN
+        twiml = build_twiml_for_call(
+            call_sid,
+            public_base_url=settings.public_base_url,
+            user_id=settings.demo_user_id,
+            caller_number=caller_number,
+            mode=mode.value,
+            caller_name=call_context.contact_name,
+            telephony_mode=settings.telephony_mode,
+        )
 
     return Response(content=twiml, media_type="application/xml")
 

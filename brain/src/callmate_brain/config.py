@@ -17,13 +17,33 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://callmate:callmate@localhost:5432/callmate"
     log_level: str = "INFO"
 
-    # llm
-    llm_provider: Literal["anthropic", "gemini", "mock"] = "mock"
-    anthropic_api_key: str = ""
-    reply_model: str = "claude-haiku-5-5"
-    summary_model: str = "claude-sonnet-5-5"
-    google_api_key: str = ""
-    embedding_provider: Literal["gemini", "local"] = "local"
+    # repeat-call tracking (docs/HANDOFF.md §7.1.8/demo scenario #7: 3 calls in 10 min bumps
+    # priority). Empty = disabled, falls back to always-zero rather than breaking when Redis
+    # isn't set up — e.g. Upstash's free tier works fine for this on the deployed app.
+    redis_url: str = ""
+    repeat_call_window_s: int = 600
+
+    # application-level encryption at rest for stored call content (MemoryRow.content,
+    # CallRow.summary). Empty = disabled (store/read as plaintext) — losing this key after
+    # it's been used means everything encrypted with it becomes permanently unreadable, so
+    # it's opt-in rather than defaulted on.
+    encryption_key: str = ""
+
+    # llm — two roles, not one interchangeable backend (docs/HANDOFF.md §1.3's original
+    # Haiku/Sonnet split): Groq for the latency-critical live reply + intent classification,
+    # NVIDIA NIM for the not-latency-critical post-call summary. Both are OpenAI-compatible.
+    reply_llm_provider: Literal["groq", "mock"] = "mock"
+    groq_api_key: str = ""
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    reply_model: str = "openai/gpt-oss-20b"
+
+    summary_llm_provider: Literal["nvidia", "mock"] = "mock"
+    nvidia_api_key: str = ""
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    summary_model: str = "nvidia/nemotron-3.5-lightning-30b-a3b"
+
+    embedding_provider: Literal["nvidia", "local"] = "local"
+    nvidia_embedding_model: str = "nvidia/nemotron-3-embed-1b"
 
     # retention
     transcript_retention_days: int = 30

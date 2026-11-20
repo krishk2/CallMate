@@ -44,7 +44,15 @@ def _rules_only_fallback(call_id: str, seq: int) -> SessionResult:
 
 
 def render_summarise_system_prompt(user_first_name: str) -> str:
-    return env.get_template("summarise_call.j2").render(user_first_name=user_first_name).strip()
+    return (
+        env.get_template("summarise_call.j2")
+        .render(
+            user_first_name=user_first_name,
+            priority_levels=[p.value for p in Priority],
+            intent_labels=[i.value for i in Intent],
+        )
+        .strip()
+    )
 
 
 async def summarise_call(

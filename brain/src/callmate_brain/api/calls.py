@@ -6,6 +6,7 @@ from callmate_contracts.rest import CallDetail, CallSummaryItem
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
+from ..safety.encryption import decrypt
 from ..storage import get_session
 from ..storage.models import CallRow
 
@@ -26,7 +27,7 @@ async def list_calls(user_id: str) -> list[CallSummaryItem]:
                 duration_s=row.duration_s,
                 priority_level=row.priority_level,
                 intent=row.intent,
-                summary=row.summary,
+                summary=decrypt(row.summary),
             )
             for row in rows
         ]
@@ -45,7 +46,7 @@ async def get_call(call_id: str) -> CallDetail:
             duration_s=row.duration_s,
             priority_level=row.priority_level,
             intent=row.intent,
-            summary=row.summary,
+            summary=decrypt(row.summary),
             score=row.score,
             callback_needed=row.callback_needed,
             callback_window=row.callback_window,

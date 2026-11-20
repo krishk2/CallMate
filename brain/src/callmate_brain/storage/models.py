@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -65,7 +65,9 @@ class MemoryRow(Base):
     kind: Mapped[str] = mapped_column(String)  # "summary" | "contact_note" | "style_example"
     content: Mapped[str] = mapped_column(String)
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
-    created_at: Mapped[datetime]
+    # timezone=True: writer.py inserts datetime.now(UTC) (aware); a naive column makes
+    # asyncpg's encoder raise "can't subtract offset-naive and offset-aware datetimes".
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class CallRow(Base):
@@ -75,7 +77,7 @@ class CallRow(Base):
     call_id: Mapped[str] = mapped_column(String, primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("brain.users.user_id"), index=True)
     caller_number: Mapped[str] = mapped_column(String, index=True)
-    started_at: Mapped[datetime]
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     duration_s: Mapped[float] = mapped_column(Float)
     priority_level: Mapped[str] = mapped_column(String)
     score: Mapped[int] = mapped_column(Integer)

@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     # notifications
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    whatsapp_from: str = "whatsapp:+14155238886"  # Twilio's shared WhatsApp Sandbox number
+    whatsapp_to: str = ""
 
     # turn-taking / barge-in tuning
     silence_prompt_s: float = 6.0
